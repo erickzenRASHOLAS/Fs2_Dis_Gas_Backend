@@ -1,0 +1,15 @@
+# Perfil de producción (AWS). Activar con SPRING_PROFILES_ACTIVE=prod
+# Variables obligatorias: DB_URL, DB_USERNAME, DB_PASSWORD, JWT_SECRET, CORS_ALLOWED_ORIGINS
+spring:
+  datasource:
+    url: ${DB_URL}
+    username: ${DB_USERNAME}
+    password: ${DB_PASSWORD}
+
+app:
+  jwt:
+    secret: ${JWT_SECRET}   # sin valor por defecto: si falta, la app no inicia
+  cors:
+    allowed-origins: ${CORS_ALLOWED_ORIGINS}
+  seed:
+    demo-users: false       # nunca cargar usuarios de demostración en producción
