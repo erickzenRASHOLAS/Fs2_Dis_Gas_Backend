@@ -1,223 +1,146 @@
 package cl.duoc.DisGasBackend.service;
 
-import cl.duoc.DisGasBackend.dto.BoletaRequest;
-import cl.duoc.DisGasBackend.dto.BoletaResponse;
-import cl.duoc.DisGasBackend.dto.ItemBoletaRequest;
-import cl.duoc.DisGasBackend.exception.ConflictoException;
-import cl.duoc.DisGasBackend.exception.RecursoNoEncontradoException;
-import cl.duoc.DisGasBackend.exception.SolicitudInvalidaException;
+import cl.duoc.DisGasBackend.dto.Dtos.BoletaRequest;
+import cl.duoc.DisGasBackend.dto.Dtos.ItemRequest;
 import cl.duoc.DisGasBackend.model.Boleta;
 import cl.duoc.DisGasBackend.model.DetalleBoleta;
-import cl.duoc.DisGasBackend.model.Estado;
 import cl.duoc.DisGasBackend.model.EstadoBoleta;
-import cl.duoc.DisGasBackend.model.EstadoPago;
 import cl.duoc.DisGasBackend.model.Producto;
-import cl.duoc.DisGasBackend.model.Rol;
 import cl.duoc.DisGasBackend.model.Usuario;
 import cl.duoc.DisGasBackend.repository.BoletaRepository;
 import cl.duoc.DisGasBackend.repository.ProductoRepository;
 import cl.duoc.DisGasBackend.repository.UsuarioRepository;
-import cl.duoc.DisGasBackend.security.Actor;
 import java.time.LocalDateTime;
-import java.util.EnumSet;
-import java.util.LinkedHashMap;
 import java.util.List;
-import java.util.Map;
-import java.util.Set;
-import java.util.function.Function;
-import java.util.stream.Collectors;
-import lombok.RequiredArgsConstructor;
-import org.springframework.security.access.AccessDeniedException;
+import org.springframework.http.HttpStatus;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
+import org.springframework.web.server.ResponseStatusException;
 
 /**
- * Lógica de negocio de las boletas (pedidos):
- * - el servidor calcula precios y total (no se confía en el cliente),
- * - el stock se descuenta al comprar y se repone al cancelar,
- * - el estado sigue un flujo PENDIENTE -> EN_RUTA -> ENTREGADO (o CANCELADO),
- * - cada rol solo ve y modifica lo que le corresponde.
+ * LOGICA DE NEGOCIO de las boletas (pedidos):
+ *  1. El servidor calcula precios y total (no se confia en el cliente).
+ *  2. Al comprar se valida el stock y se descuenta.
+ *  3. Al cancelar se devuelve el stock.
+ *  4. El estado sigue el flujo PENDIENTE -> EN_RUTA -> ENTREGADO.
+ *  5. Un cliente solo ve y cancela SUS boletas.
+ *
+ * @Transactional: si algo falla a mitad de camino, se deshacen todos los cambios (ej: no queda stock descontado).
  */
 @Service
-@RequiredArgsConstructor
 public class BoletaService {
-
-    private static final Map<EstadoBoleta, Set<EstadoBoleta>> TRANSICIONES = Map.of(
-            EstadoBoleta.PENDIENTE, EnumSet.of(EstadoBoleta.EN_RUTA, EstadoBoleta.CANCELADO),
-            EstadoBoleta.EN_RUTA, EnumSet.of(EstadoBoleta.ENTREGADO, EstadoBoleta.CANCELADO),
-            EstadoBoleta.ENTREGADO, EnumSet.noneOf(EstadoBoleta.class),
-            EstadoBoleta.CANCELADO, EnumSet.noneOf(EstadoBoleta.class));
 
     private final BoletaRepository boletaRepository;
     private final ProductoRepository productoRepository;
     private final UsuarioRepository usuarioRepository;
 
+    public BoletaService(BoletaRepository boletaRepository, ProductoRepository productoRepository,
+                         UsuarioRepository usuarioRepository) {
+        this.boletaRepository = boletaRepository;
+        this.productoRepository = productoRepository;
+        this.usuarioRepository = usuarioRepository;
+    }
+
     @Transactional
-    public BoletaResponse crear(Actor actor, BoletaRequest req) {
-        Usuario usuario = usuarioRepository.findById(actor.id())
-                .orElseThrow(() -> new RecursoNoEncontradoException("Usuario no encontrado"));
-
-        // Si el mismo producto viene repetido, se suman las cantidades.
-        Map<Long, Integer> cantidades = new LinkedHashMap<>();
-        for (ItemBoletaRequest item : req.items()) {
-            cantidades.merge(item.productoId(), item.cantidad(), Integer::sum);
-        }
-
-        Map<Long, Producto> productos = productoRepository.findAllByIdForUpdate(cantidades.keySet()).stream()
-                .collect(Collectors.toMap(Producto::getId, Function.identity()));
+    public Boleta crear(String correo, BoletaRequest req) {
+        Usuario usuario = usuarioRepository.findByCorreo(correo)
+                .orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND, "Usuario no encontrado"));
 
         Boleta boleta = new Boleta();
         boleta.setUsuario(usuario);
-        boleta.setNombreCliente(req.nombreCliente().trim());
-        boleta.setTelefono(req.telefono().trim());
-        boleta.setDireccion(req.direccion().trim());
+        boleta.setDireccion(req.direccion());
         boleta.setFecha(LocalDateTime.now());
+        boleta.setEstado(EstadoBoleta.PENDIENTE);
 
         int total = 0;
-        for (Map.Entry<Long, Integer> e : cantidades.entrySet()) {
-            Producto p = productos.get(e.getKey());
-            if (p == null || p.getEstado() != Estado.ACTIVO) {
-                throw new SolicitudInvalidaException("El producto con id " + e.getKey() + " no existe o no está disponible");
+        for (ItemRequest item : req.items()) {
+            Producto producto = productoRepository.findById(item.productoId())
+                    .orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND,
+                            "Producto " + item.productoId() + " no encontrado"));
+            if (!producto.isActivo()) {
+                throw new ResponseStatusException(HttpStatus.BAD_REQUEST,
+                        "El producto " + producto.getNombre() + " no esta disponible");
             }
-            int cantidad = e.getValue();
-            if (p.getStock() < cantidad) {
-                throw new ConflictoException("Stock insuficiente para '" + p.getNombre() + "'. Disponible: " + p.getStock());
+            if (producto.getStock() < item.cantidad()) {
+                throw new ResponseStatusException(HttpStatus.CONFLICT,
+                        "Stock insuficiente de " + producto.getNombre() + " (disponible: " + producto.getStock() + ")");
             }
-            p.setStock(p.getStock() - cantidad);
+            // Descontar stock (Hibernate guarda el cambio al terminar la transaccion)
+            producto.setStock(producto.getStock() - item.cantidad());
 
             DetalleBoleta detalle = new DetalleBoleta();
-            detalle.setProducto(p);
-            detalle.setCantidad(cantidad);
-            detalle.setPrecioUnitario(p.getPrecio());
-            detalle.setSubtotal(p.getPrecio() * cantidad);
-            boleta.agregarDetalle(detalle);
+            detalle.setBoleta(boleta);
+            detalle.setProducto(producto);
+            detalle.setCantidad(item.cantidad());
+            detalle.setPrecioUnitario(producto.getPrecio());               // precio tomado de la BD
+            detalle.setSubtotal(producto.getPrecio() * item.cantidad());
+            boleta.getDetalles().add(detalle);
+
             total += detalle.getSubtotal();
         }
         boleta.setTotal(total);
-        return BoletaResponse.from(boletaRepository.save(boleta));
+        return boletaRepository.save(boleta);
+    }
+
+    /** soloPropias = true para CLIENTE (ve solo las suyas); false para ADMIN y VENDEDOR (ven todas). */
+    @Transactional(readOnly = true)
+    public List<Boleta> listar(String correo, boolean soloPropias) {
+        if (soloPropias) {
+            return boletaRepository.findByUsuarioCorreoOrderByFechaDesc(correo);
+        }
+        return boletaRepository.findAllByOrderByFechaDesc();
     }
 
     @Transactional(readOnly = true)
-    public List<BoletaResponse> listar(Actor actor, EstadoBoleta estado) {
-        List<Boleta> boletas = switch (actor.rol()) {
-            case ADMINISTRADOR, VENDEDOR -> boletaRepository.findAllByOrderByFechaDescIdDesc();
-            case CLIENTE -> boletaRepository.findByUsuarioIdOrderByFechaDescIdDesc(actor.id());
-            case REPARTIDOR -> boletaRepository.findByRepartidorIdOrderByFechaDescIdDesc(actor.id());
-        };
-        return boletas.stream()
-                .filter(b -> estado == null || b.getEstado() == estado)
-                .map(BoletaResponse::from)
-                .toList();
+    public Boleta obtener(Long id, String correo, boolean soloPropias) {
+        Boleta boleta = buscar(id);
+        if (soloPropias && !boleta.getUsuario().getCorreo().equals(correo)) {
+            throw new ResponseStatusException(HttpStatus.FORBIDDEN, "Esta boleta no te pertenece");
+        }
+        return boleta;
     }
 
-    @Transactional(readOnly = true)
-    public BoletaResponse obtener(Long id, Actor actor) {
-        Boleta b = buscar(id);
-        verificarAcceso(b, actor);
-        return BoletaResponse.from(b);
-    }
-
+    /** Solo ADMIN. Avanza el pedido un paso: PENDIENTE -> EN_RUTA -> ENTREGADO. */
     @Transactional
-    public BoletaResponse asignarRepartidor(Long id, Long repartidorId) {
-        Boleta b = buscar(id);
-        if (b.getEstado() == EstadoBoleta.ENTREGADO || b.getEstado() == EstadoBoleta.CANCELADO) {
-            throw new ConflictoException("No se puede asignar repartidor a una boleta " + b.getEstado());
+    public Boleta cambiarEstado(Long id, EstadoBoleta nuevo) {
+        Boleta boleta = buscar(id);
+        EstadoBoleta actual = boleta.getEstado();
+        boolean pasoValido = (actual == EstadoBoleta.PENDIENTE && nuevo == EstadoBoleta.EN_RUTA)
+                || (actual == EstadoBoleta.EN_RUTA && nuevo == EstadoBoleta.ENTREGADO);
+        if (!pasoValido) {
+            throw new ResponseStatusException(HttpStatus.CONFLICT,
+                    "No se puede pasar de " + actual + " a " + nuevo
+                            + " (flujo: PENDIENTE, EN_RUTA, ENTREGADO). Para anular usa /cancelar");
         }
-        Usuario repartidor = usuarioRepository.findById(repartidorId)
-                .orElseThrow(() -> new RecursoNoEncontradoException("Repartidor no encontrado (id " + repartidorId + ")"));
-        if (repartidor.getRol() != Rol.REPARTIDOR || repartidor.getEstado() != Estado.ACTIVO) {
-            throw new SolicitudInvalidaException("El usuario indicado no es un repartidor activo");
-        }
-        b.setRepartidor(repartidor);
-        return BoletaResponse.from(boletaRepository.save(b));
+        boleta.setEstado(nuevo);
+        return boleta;
     }
 
+    /** CLIENTE: cancela sus boletas PENDIENTES. ADMIN: cancela cualquiera que no este entregada. */
     @Transactional
-    public BoletaResponse cambiarEstado(Long id, EstadoBoleta nuevo, Actor actor) {
-        Boleta b = buscar(id);
-        verificarAcceso(b, actor);
-
-        if (!TRANSICIONES.get(b.getEstado()).contains(nuevo)) {
-            throw new ConflictoException("No se puede cambiar el estado de " + b.getEstado() + " a " + nuevo);
+    public Boleta cancelar(Long id, String correo, boolean esAdmin) {
+        Boleta boleta = buscar(id);
+        if (!esAdmin && !boleta.getUsuario().getCorreo().equals(correo)) {
+            throw new ResponseStatusException(HttpStatus.FORBIDDEN, "Esta boleta no te pertenece");
         }
-        // Permisos por rol sobre el cambio de estado.
-        switch (actor.rol()) {
-            case ADMINISTRADOR -> { /* puede ejecutar cualquier transición válida */ }
-            case REPARTIDOR -> {
-                if (nuevo == EstadoBoleta.CANCELADO) {
-                    throw new AccessDeniedException("El repartidor no puede cancelar boletas");
-                }
-            }
-            case CLIENTE -> {
-                if (nuevo != EstadoBoleta.CANCELADO) {
-                    throw new AccessDeniedException("Solo puedes cancelar tus pedidos");
-                }
-                if (b.getEstado() != EstadoBoleta.PENDIENTE) {
-                    throw new ConflictoException("Solo se pueden cancelar pedidos pendientes");
-                }
-            }
-            default -> throw new AccessDeniedException("Tu rol no puede modificar boletas");
+        EstadoBoleta estado = boleta.getEstado();
+        boolean sePuedeCancelar = esAdmin
+                ? (estado == EstadoBoleta.PENDIENTE || estado == EstadoBoleta.EN_RUTA)
+                : estado == EstadoBoleta.PENDIENTE;
+        if (!sePuedeCancelar) {
+            throw new ResponseStatusException(HttpStatus.CONFLICT, "La boleta esta " + estado + " y ya no se puede cancelar");
         }
-
-        if (nuevo == EstadoBoleta.EN_RUTA && b.getRepartidor() == null) {
-            throw new ConflictoException("Debes asignar un repartidor antes de enviar el pedido a ruta");
+        // Devolver el stock de cada producto
+        for (DetalleBoleta detalle : boleta.getDetalles()) {
+            Producto producto = detalle.getProducto();
+            producto.setStock(producto.getStock() + detalle.getCantidad());
         }
-        if (nuevo == EstadoBoleta.CANCELADO) {
-            if (b.getEstadoPago() == EstadoPago.PAGADO) {
-                throw new ConflictoException("No se puede cancelar una boleta que ya tiene el pago registrado");
-            }
-            reponerStock(b);
-        }
-        b.setEstado(nuevo);
-        return BoletaResponse.from(boletaRepository.save(b));
-    }
-
-    @Transactional
-    public BoletaResponse registrarPagoEfectivo(Long id, Actor actor) {
-        Boleta b = buscar(id);
-        boolean esRepartidorAsignado = actor.rol() == Rol.REPARTIDOR
-                && b.getRepartidor() != null && b.getRepartidor().getId().equals(actor.id());
-        if (actor.rol() != Rol.ADMINISTRADOR && !esRepartidorAsignado) {
-            throw new AccessDeniedException("No puedes registrar el pago de esta boleta");
-        }
-        if (b.getEstado() == EstadoBoleta.CANCELADO) {
-            throw new ConflictoException("No se puede registrar pago en una boleta cancelada");
-        }
-        if (b.getEstadoPago() == EstadoPago.PAGADO) {
-            return BoletaResponse.from(b); // idempotente: ya estaba pagada
-        }
-        b.setEstadoPago(EstadoPago.PAGADO);
-        b.setMetodoPago("EFECTIVO");
-        b.setMontoPagado(b.getTotal());
-        b.setFechaPago(LocalDateTime.now());
-        return BoletaResponse.from(boletaRepository.save(b));
-    }
-
-    private void reponerStock(Boleta b) {
-        List<Long> ids = b.getDetalles().stream().map(d -> d.getProducto().getId()).toList();
-        Map<Long, Producto> productos = productoRepository.findAllByIdForUpdate(ids).stream()
-                .collect(Collectors.toMap(Producto::getId, Function.identity()));
-        for (DetalleBoleta d : b.getDetalles()) {
-            Producto p = productos.get(d.getProducto().getId());
-            if (p != null) {
-                p.setStock(p.getStock() + d.getCantidad());
-            }
-        }
-    }
-
-    private void verificarAcceso(Boleta b, Actor actor) {
-        boolean permitido = switch (actor.rol()) {
-            case ADMINISTRADOR, VENDEDOR -> true;
-            case CLIENTE -> b.getUsuario().getId().equals(actor.id());
-            case REPARTIDOR -> b.getRepartidor() != null && b.getRepartidor().getId().equals(actor.id());
-        };
-        if (!permitido) {
-            throw new AccessDeniedException("No tienes acceso a esta boleta");
-        }
+        boleta.setEstado(EstadoBoleta.CANCELADO);
+        return boleta;
     }
 
     private Boleta buscar(Long id) {
         return boletaRepository.findById(id)
-                .orElseThrow(() -> new RecursoNoEncontradoException("Boleta no encontrada (id " + id + ")"));
+                .orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND, "Boleta no encontrada"));
     }
 }

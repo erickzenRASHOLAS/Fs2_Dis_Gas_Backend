@@ -1,71 +1,99 @@
 package cl.duoc.DisGasBackend.config;
 
-import cl.duoc.DisGasBackend.model.Estado;
+import cl.duoc.DisGasBackend.model.Categoria;
+import cl.duoc.DisGasBackend.model.Producto;
 import cl.duoc.DisGasBackend.model.Rol;
 import cl.duoc.DisGasBackend.model.Usuario;
+import cl.duoc.DisGasBackend.repository.CategoriaRepository;
+import cl.duoc.DisGasBackend.repository.ProductoRepository;
 import cl.duoc.DisGasBackend.repository.UsuarioRepository;
-import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.boot.CommandLineRunner;
 import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.stereotype.Component;
 
 /**
- * Carga de usuarios al iniciar:
- * - app.seed.demo-users=true  -> cuentas de demostración (solo desarrollo; en prod está en false).
- * - ADMIN_EMAIL + ADMIN_PASSWORD -> crea el primer administrador si todavía no existe ninguno.
+ * Se ejecuta una vez al iniciar la app. Si las tablas estan vacias, las llena con:
+ *  - el catalogo inicial (2 categorias y 8 productos)
+ *  - usuarios de demostracion (solo si app.seed.demo-users=true)
  */
 @Component
-@Slf4j
 public class DataInitializer implements CommandLineRunner {
 
+    private final CategoriaRepository categoriaRepository;
+    private final ProductoRepository productoRepository;
     private final UsuarioRepository usuarioRepository;
     private final PasswordEncoder passwordEncoder;
-    private final boolean demo;
-    private final String adminEmail;
-    private final String adminPassword;
 
-    public DataInitializer(UsuarioRepository usuarioRepository,
-                           PasswordEncoder passwordEncoder,
-                           @Value("${app.seed.demo-users:false}") boolean demo,
-                           @Value("${app.seed.admin-email:}") String adminEmail,
-                           @Value("${app.seed.admin-password:}") String adminPassword) {
+    @Value("${app.seed.demo-users}")
+    private boolean crearUsuariosDemo;
+
+    public DataInitializer(CategoriaRepository categoriaRepository, ProductoRepository productoRepository,
+                           UsuarioRepository usuarioRepository, PasswordEncoder passwordEncoder) {
+        this.categoriaRepository = categoriaRepository;
+        this.productoRepository = productoRepository;
         this.usuarioRepository = usuarioRepository;
         this.passwordEncoder = passwordEncoder;
-        this.demo = demo;
-        this.adminEmail = adminEmail;
-        this.adminPassword = adminPassword;
     }
 
     @Override
     public void run(String... args) {
-        if (demo) {
-            crear("Juan Pérez", "juan.perez@email.com", "+56 9 1234 5678", "Av. Brasil 456, Depto 12, Chillán", "123456", Rol.CLIENTE);
-            crear("María González", "maria.gonzalez@email.com", "+56 9 8765 4321", "Los Pinos 123, Chillán", "123456", Rol.CLIENTE);
-            crear("Carlos Repartidor", "carlos.repartidor@volcan.cl", "+56 9 5555 4444", "Base Central, Chillán", "123456", Rol.REPARTIDOR);
-            crear("Ana Vendedora", "ana.vendedora@volcan.cl", "+56 9 3333 2222", "Oficina Central, Chillán", "123456", Rol.VENDEDOR);
-            crear("Admin Volcán", "admin@volcan.cl", "+56 9 9999 8888", "Oficina Central, Chillán", "admin123", Rol.ADMINISTRADOR);
-            log.warn("Usuarios de DEMOSTRACIÓN cargados. No usar en producción (app.seed.demo-users=false).");
+        if (categoriaRepository.count() == 0) {
+            cargarCatalogo();
         }
-        if (!adminEmail.isBlank() && !adminPassword.isBlank() && !usuarioRepository.existsByRol(Rol.ADMINISTRADOR)) {
-            crear("Administrador", adminEmail, "-", "-", adminPassword, Rol.ADMINISTRADOR);
-            log.info("Administrador inicial creado: {}", adminEmail);
+        if (crearUsuariosDemo && usuarioRepository.count() == 0) {
+            cargarUsuariosDemo();
         }
     }
 
-    private void crear(String nombre, String correo, String telefono, String direccion, String password, Rol rol) {
-        String correoNormalizado = correo.trim().toLowerCase();
-        if (usuarioRepository.existsByCorreo(correoNormalizado)) {
-            return;
-        }
+    private void cargarCatalogo() {
+        Categoria gas = crearCategoria("Gas", "Cilindros de gas licuado");
+        Categoria accesorios = crearCategoria("Accesorios", "Conectores y accesorios para gas");
+
+        crearProducto("Cilindro 5 kg", "Cilindro de gas licuado de 5 kg", 10800, 32, 8, gas);
+        crearProducto("Cilindro 11 kg", "Cilindro de gas licuado de 11 kg", 21500, 48, 10, gas);
+        crearProducto("Cilindro 15 kg", "Cilindro de gas licuado de 15 kg", 27900, 27, 8, gas);
+        crearProducto("Regulador de gas", "Regulador de presion para cilindro", 12500, 40, 10, accesorios);
+        crearProducto("Manguera para gas 1,5 m", "Manguera flexible para gas de 1,5 metros", 5500, 40, 10, accesorios);
+        crearProducto("Conector de gas", "Conector para instalacion de gas", 3500, 60, 10, accesorios);
+        crearProducto("Abrazadera para manguera", "Abrazadera metalica para manguera", 1200, 80, 15, accesorios);
+        crearProducto("Kit regulador y manguera", "Kit completo de regulador y manguera", 16900, 25, 5, accesorios);
+    }
+
+    private void cargarUsuariosDemo() {
+        crearUsuario("Admin Volcan", "admin@volcan.cl", "admin123", Rol.ADMINISTRADOR);
+        crearUsuario("Ana Vendedora", "ana.vendedora@volcan.cl", "123456", Rol.VENDEDOR);
+        crearUsuario("Juan Perez", "juan.perez@email.com", "123456", Rol.CLIENTE);
+        crearUsuario("Maria Gonzalez", "maria.gonzalez@email.com", "123456", Rol.CLIENTE);
+    }
+
+    private Categoria crearCategoria(String nombre, String descripcion) {
+        Categoria c = new Categoria();
+        c.setNombre(nombre);
+        c.setDescripcion(descripcion);
+        return categoriaRepository.save(c);
+    }
+
+    private void crearProducto(String nombre, String descripcion, int precio, int stock, int stockMinimo,
+                               Categoria categoria) {
+        Producto p = new Producto();
+        p.setNombre(nombre);
+        p.setDescripcion(descripcion);
+        p.setPrecio(precio);
+        p.setStock(stock);
+        p.setStockMinimo(stockMinimo);
+        p.setCategoria(categoria);
+        productoRepository.save(p);
+    }
+
+    private void crearUsuario(String nombre, String correo, String password, Rol rol) {
         Usuario u = new Usuario();
         u.setNombre(nombre);
-        u.setCorreo(correoNormalizado);
-        u.setTelefono(telefono);
-        u.setDireccion(direccion);
-        u.setPasswordHash(passwordEncoder.encode(password));
+        u.setCorreo(correo);
+        u.setTelefono("+56 9 1234 5678");
+        u.setDireccion("Chillan");
+        u.setPassword(passwordEncoder.encode(password));
         u.setRol(rol);
-        u.setEstado(Estado.ACTIVO);
         usuarioRepository.save(u);
     }
 }

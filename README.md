@@ -1,49 +1,62 @@
 # DisGas Backend — Gas El Volcán
 
-API REST con **Spring Boot 4 (Java 21)**, **MySQL**, **Flyway**, **Spring Security + JWT** y **Swagger (springdoc)**.
-Backend de la tienda de gas a domicilio (frontend: `FS2_DisGas`).
+API REST con **Spring Boot**, **MySQL** (H2 en desarrollo), **Spring Security + JWT** y **Swagger**.
+Es el backend de la tienda de gas a domicilio (frontend: `FS2_DisGas`).
 
-## Ejecutar en local (sin instalar nada más)
+## Ejecutar en tu computador
+
+No necesitas instalar base de datos: en desarrollo usa **H2 en memoria**.
 
 ```bash
-./mvnw spring-boot:run
+./mvnw spring-boot:run          # en Windows: mvnw.cmd spring-boot:run   (o el botón Run de IntelliJ)
 ```
 
-Usa una base **H2 en memoria** (modo MySQL) y carga usuarios de demostración. Luego abre:
+- Swagger: http://localhost:8080/swagger-ui.html
+- Catálogo de ejemplo: http://localhost:8080/v1/productos
 
-- Swagger UI: http://localhost:8080/swagger-ui.html
-- Salud: http://localhost:8080/actuator/health
+**Probar rutas protegidas en Swagger:** `POST /v1/auth/login` → copiar el campo `token` → botón **Authorize** → pegar el token.
 
-Para probar endpoints protegidos: `POST /v1/auth/login` → copia `accessToken` → botón **Authorize** en Swagger.
-
-### Cuentas de demostración (solo perfil de desarrollo)
+### Usuarios de demostración
 
 | Rol | Correo | Contraseña |
 |---|---|---|
 | ADMINISTRADOR | admin@volcan.cl | admin123 |
 | VENDEDOR | ana.vendedora@volcan.cl | 123456 |
-| REPARTIDOR | carlos.repartidor@volcan.cl | 123456 |
 | CLIENTE | juan.perez@email.com | 123456 |
 
-## Modelo de datos (Anexo 1)
+## Estructura del proyecto
 
-`USUARIO → BOLETA → DETALLE_BOLETA ← PRODUCTO ← CATEGORIA`. El esquema vive en `src/main/resources/db/migration` (Flyway):
-`V1` crea las tablas y `V2` carga categorías y el catálogo inicial.
+```
+src/main/java/cl/duoc/DisGasBackend
+├── model/        Entidades = tablas (Usuario, Categoria, Producto, Boleta, DetalleBoleta) y enums
+├── repository/   Acceso a la base de datos (Spring Data JPA)
+├── service/      LÓGICA DE NEGOCIO
+├── controller/   Endpoints REST (/v1/...)
+├── dto/          Datos que llegan en el JSON de las peticiones (con validaciones)
+├── security/     JwtUtil (crea/lee tokens) y JwtAuthFilter (revisa el token en cada petición)
+├── config/       SecurityConfig (roles por ruta), CorsConfig, OpenApiConfig (Swagger), DataInitializer (datos iniciales)
+└── exception/    ManejadorErrores (respuestas de error en JSON)
+```
 
-## Roles y permisos
+## Modelo de datos
 
-| Recurso | ADMINISTRADOR | VENDEDOR | REPARTIDOR | CLIENTE | Público |
-|---|:-:|:-:|:-:|:-:|:-:|
-| Registro / login / refresh | ✔ | ✔ | ✔ | ✔ | ✔ |
-| Ver productos y categorías | ✔ (incluye inactivos) | ✔ (incluye inactivos) | ✔ | ✔ | ✔ |
-| Crear/editar/eliminar productos, categorías, stock | ✔ | – | – | – | – |
-| Ver boletas (lista y detalle) | todas | todas | las asignadas | las propias | – |
-| Crear pedido | ✔ | – | – | ✔ | – |
-| Asignar repartidor | ✔ | – | – | – | – |
-| Cambiar estado de boleta | todas las transiciones válidas | – | EN_RUTA / ENTREGADO (las suyas) | solo cancelar las suyas pendientes | – |
-| Registrar pago en efectivo | ✔ | – | las asignadas | – | – |
-| CRUD de usuarios | ✔ | – | – | – | – |
-| Mi perfil / cambiar contraseña | ✔ | ✔ | ✔ | ✔ | – |
+`USUARIO → BOLETA → DETALLE_BOLETA ← PRODUCTO ← CATEGORIA` (Figura 1 de la pauta).
+Hibernate crea las tablas solo (`spring.jpa.hibernate.ddl-auto=update`) y `DataInitializer` carga el catálogo y los usuarios de demo.
+
+## Roles y permisos (pauta)
+
+| Acción | ADMINISTRADOR | VENDEDOR | CLIENTE | Sin sesión |
+|---|:-:|:-:|:-:|:-:|
+| Registro, login, refresh | ✔ | ✔ | ✔ | ✔ |
+| Ver catálogo (`GET /v1/productos`, `/v1/categorias`) | ✔ | ✔ | ✔ | ✔ |
+| Ver todos los productos, incluso inactivos (`/v1/productos/todos`) | ✔ | ✔ | – | – |
+| Crear / editar / eliminar productos y categorías | ✔ | – | – | – |
+| Ver lista y detalle de boletas | todas | todas | solo las suyas | – |
+| Crear boleta (comprar) | ✔ | – | ✔ | – |
+| Cancelar boleta | cualquiera no entregada | – | sus boletas pendientes | – |
+| Cambiar estado de boleta | ✔ | – | – | – |
+| CRUD de usuarios | ✔ | – | – | – |
+| Ver / editar mi perfil | ✔ | ✔ | ✔ | – |
 
 ## Endpoints (todos bajo `/v1`)
 
@@ -51,33 +64,34 @@ Para probar endpoints protegidos: `POST /v1/auth/login` → copia `accessToken` 
 |---|---|---|
 | POST | `/v1/auth/registro` · `/v1/auth/login` · `/v1/auth/refresh` | público |
 | GET | `/v1/productos` · `/v1/productos/{id}` · `/v1/categorias` · `/v1/categorias/{id}` | público |
-| POST/PUT/DELETE | `/v1/productos`, `/v1/productos/{id}` · `/v1/categorias`, `/v1/categorias/{id}` | ADMINISTRADOR |
-| PATCH | `/v1/productos/{id}/stock` | ADMINISTRADOR |
-| GET/PUT | `/v1/usuarios/me` · PUT `/v1/usuarios/me/password` | autenticado |
-| GET/POST/PUT/PATCH/DELETE | `/v1/usuarios`, `/v1/usuarios/{id}`, `/v1/usuarios/{id}/estado` | ADMINISTRADOR |
-| POST/GET | `/v1/boletas` · `/v1/boletas/{id}` | según rol |
-| PATCH | `/v1/boletas/{id}/repartidor` | ADMINISTRADOR |
-| PATCH | `/v1/boletas/{id}/estado` | ADMINISTRADOR, REPARTIDOR, CLIENTE |
-| POST | `/v1/boletas/{id}/pago-efectivo` | ADMINISTRADOR, REPARTIDOR |
+| GET | `/v1/productos/todos` | ADMINISTRADOR, VENDEDOR |
+| POST · PUT · DELETE | `/v1/productos[/{id}]` · `/v1/categorias[/{id}]` | ADMINISTRADOR |
+| GET · POST · PUT · DELETE | `/v1/usuarios[/{id}]` | ADMINISTRADOR |
+| GET · PUT | `/v1/perfil` | cualquier usuario con sesión |
+| POST | `/v1/boletas` | CLIENTE, ADMINISTRADOR |
+| GET | `/v1/boletas` · `/v1/boletas/{id}` | ADMINISTRADOR, VENDEDOR, CLIENTE |
+| PUT | `/v1/boletas/{id}/cancelar` | CLIENTE, ADMINISTRADOR |
+| PUT | `/v1/boletas/{id}/estado` | ADMINISTRADOR |
 
-Códigos: `200/201/204` éxito · `400` datos inválidos · `401` sin token / token inválido · `403` sin permiso · `404` no existe · `409` conflicto (correo duplicado, stock insuficiente, transición inválida). Todos los errores usan el mismo formato JSON (`timestamp, status, error, mensaje, ruta, detalles`).
+Códigos: `200/201/204` éxito · `400` datos inválidos · `401` sin token / token inválido · `403` sin permiso · `404` no existe · `409` conflicto (correo repetido, sin stock, cambio de estado inválido).
 
-## Reglas de negocio principales
+## Reglas de negocio
 
-- El **precio y el total los calcula el servidor**; el cliente solo envía producto y cantidad.
-- Al crear una boleta se **valida y descuenta el stock** (con bloqueo de fila para evitar sobreventa); al cancelarla se **repone**.
-- Flujo de estado: `PENDIENTE → EN_RUTA → ENTREGADO`, o `CANCELADO` (no si ya está pagada). Para pasar a `EN_RUTA` debe haber repartidor asignado.
-- El registro público siempre crea `CLIENTE`. Un admin no puede borrarse, desactivarse ni quitarse el rol a sí mismo.
-- No se puede eliminar un producto/usuario/categoría con datos asociados (409); se desactiva en su lugar.
+1. El **total lo calcula el servidor** con los precios de la base de datos (el cliente solo envía producto y cantidad).
+2. Al comprar se **valida y descuenta el stock**; si falta stock responde `409` y no se descuenta nada (`@Transactional`).
+3. Al cancelar una boleta se **devuelve el stock**.
+4. El estado avanza `PENDIENTE → EN_RUTA → ENTREGADO`; cualquier otro salto da `409`.
+5. Un cliente solo ve y cancela **sus** boletas.
+6. El registro público **siempre crea CLIENTE**.
+7. No se borra un producto que ya está en boletas, ni una categoría con productos, ni un usuario con boletas (`409`).
 
-## Seguridad (JWT)
+## Seguridad
 
-- `POST /v1/auth/login` entrega **access token** (30 min, lleva el rol) y **refresh token** (7 días).
-- `POST /v1/auth/refresh` valida el refresh token, confirma que el usuario siga activo y emite un par nuevo.
-- Firma HS256 con `JWT_SECRET` (≥ 32 caracteres). El claim `token_type` impide usar un refresh token como access token.
-- Contraseñas con **BCrypt**; la API nunca devuelve contraseñas ni hashes.
-- Sin sesión en servidor (stateless), CSRF desactivado (no hay cookies), CORS restringido a `CORS_ALLOWED_ORIGINS`.
-- Autorización en dos capas: reglas por URL (`SecurityConfig`) y `@PreAuthorize` en cada controlador.
+- **Login** devuelve `token` (60 min) y `refreshToken` (7 días), firmados con la clave `jwt.secret`.
+- **Renovación:** `POST /v1/auth/refresh` con el `refreshToken` entrega un par nuevo.
+- `JwtAuthFilter` valida el token en cada petición; `SecurityConfig` decide por rol qué rutas puede usar.
+- Contraseñas con **BCrypt**. La API nunca devuelve contraseñas.
+- Sin sesión en el servidor (*stateless*). CORS limitado al origen del frontend.
 
 ## Pruebas
 
@@ -85,34 +99,10 @@ Códigos: `200/201/204` éxito · `400` datos inválidos · `401` sin token / to
 ./mvnw test
 ```
 
-- `BoletaServiceTest`: lógica de negocio (total, stock, estados, permisos) con Mockito.
-- `ApiSeguridadIntegrationTest`: API completa con JWT y roles sobre H2 + Flyway.
+- `BoletaServiceTest`: lógica de negocio (unitaria, con Mockito).
+- `ApiIntegrationTest`: API completa con JWT y roles sobre H2.
 
-## Variables de entorno (producción / AWS)
+## Despliegue en AWS (sin Docker)
 
-Perfil `prod` (`SPRING_PROFILES_ACTIVE=prod`). Ver `.env.example`.
-
-| Variable | Descripción |
-|---|---|
-| `DB_URL`, `DB_USERNAME`, `DB_PASSWORD` | Conexión MySQL (RDS) |
-| `JWT_SECRET` | Clave de firma JWT (≥ 32 caracteres). **Obligatoria** |
-| `CORS_ALLOWED_ORIGINS` | URL(s) del frontend, separadas por coma. **Obligatoria** |
-| `ADMIN_EMAIL`, `ADMIN_PASSWORD` | Crea el primer administrador si no existe ninguno |
-| `PORT` | Puerto (por defecto 8080) |
-
-En `prod` **no** se cargan los usuarios de demostración.
-
-### Probar el contenedor como en producción
-
-```bash
-cp .env.example .env      # editar valores
-docker compose up --build
-```
-
-### Notas para el despliegue en AWS
-
-- Base de datos: **RDS MySQL 8** (crear la BD `disgas` con `utf8mb4`). Flyway crea las tablas al primer arranque.
-- Imagen: el `Dockerfile` genera una imagen lista para ECR → ECS/Fargate, App Runner o una EC2 con Docker.
-- Health check del balanceador: `GET /actuator/health`.
-- Las variables sensibles van en Secrets Manager / Parameter Store, no en el repositorio.
-- El security group de RDS debe permitir el puerto 3306 solo desde el backend.
+Ver **`DEPLOY_AWS.md`**. Resumen: RDS MySQL privado + EC2 (Amazon Corretto 17) con el JAR como servicio `systemd`
+y variables de entorno en `/etc/app.env`.

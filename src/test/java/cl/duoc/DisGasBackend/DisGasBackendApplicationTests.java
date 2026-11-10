@@ -8,6 +8,7 @@ class DisGasBackendApplicationTests {
 
 	@Test
 	void contextLoads() {
+		// Si la aplicacion arranca con la base de datos y la seguridad, la prueba pasa.
 	}
 
 }

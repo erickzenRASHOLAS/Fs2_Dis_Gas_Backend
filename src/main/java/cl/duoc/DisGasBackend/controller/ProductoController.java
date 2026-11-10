@@ -1,82 +1,67 @@
 package cl.duoc.DisGasBackend.controller;
 
-import cl.duoc.DisGasBackend.config.OpenApiConfig;
-import cl.duoc.DisGasBackend.dto.ProductoRequest;
-import cl.duoc.DisGasBackend.dto.ProductoResponse;
-import cl.duoc.DisGasBackend.dto.StockRequest;
-import cl.duoc.DisGasBackend.security.SecurityUtils;
+import cl.duoc.DisGasBackend.model.Producto;
 import cl.duoc.DisGasBackend.service.ProductoService;
 import io.swagger.v3.oas.annotations.Operation;
-import io.swagger.v3.oas.annotations.security.SecurityRequirement;
 import io.swagger.v3.oas.annotations.tags.Tag;
 import jakarta.validation.Valid;
 import java.util.List;
-import lombok.RequiredArgsConstructor;
 import org.springframework.http.HttpStatus;
-import org.springframework.security.access.prepost.PreAuthorize;
 import org.springframework.web.bind.annotation.DeleteMapping;
 import org.springframework.web.bind.annotation.GetMapping;
-import org.springframework.web.bind.annotation.PatchMapping;
 import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.PutMapping;
 import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
-import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.ResponseStatus;
 import org.springframework.web.bind.annotation.RestController;
 
 @RestController
 @RequestMapping("/v1/productos")
-@RequiredArgsConstructor
-@Tag(name = "Productos", description = "Catálogo (lectura pública) e inventario (escritura solo ADMINISTRADOR)")
+@Tag(name = "Productos", description = "Catalogo e inventario. Lectura publica; crear/editar/eliminar solo ADMINISTRADOR")
 public class ProductoController {
 
     private final ProductoService productoService;
 
+    public ProductoController(ProductoService productoService) {
+        this.productoService = productoService;
+    }
+
     @GetMapping
-    @Operation(summary = "Listar productos (público)",
-            description = "Público y clientes ven solo productos ACTIVOS; ADMINISTRADOR y VENDEDOR ven también los inactivos. Filtro opcional ?categoriaId=.")
-    public List<ProductoResponse> listar(@RequestParam(required = false) Long categoriaId) {
-        return productoService.listar(categoriaId, SecurityUtils.actorOpcional());
+    @Operation(summary = "Listar productos activos (publico)", description = "Es el catalogo de la tienda.")
+    public List<Producto> listar() {
+        return productoService.listarActivos();
+    }
+
+    @GetMapping("/todos")
+    @Operation(summary = "Listar TODOS los productos, incluso inactivos (ADMINISTRADOR, VENDEDOR)")
+    public List<Producto> listarTodos() {
+        return productoService.listarTodos();
     }
 
     @GetMapping("/{id}")
-    @Operation(summary = "Detalle de un producto (público)")
-    public ProductoResponse obtener(@PathVariable Long id) {
-        return productoService.obtener(id, SecurityUtils.actorOpcional());
+    @Operation(summary = "Detalle de un producto (publico)")
+    public Producto obtener(@PathVariable Long id) {
+        return productoService.obtener(id);
     }
 
     @PostMapping
     @ResponseStatus(HttpStatus.CREATED)
-    @PreAuthorize("hasRole('ADMINISTRADOR')")
-    @SecurityRequirement(name = OpenApiConfig.ESQUEMA_JWT)
-    @Operation(summary = "Crear producto (ADMINISTRADOR)")
-    public ProductoResponse crear(@Valid @RequestBody ProductoRequest req) {
-        return productoService.crear(req);
+    @Operation(summary = "Crear producto (ADMINISTRADOR)", description = "La categoria se envia como { \"id\": 1 }.")
+    public Producto crear(@Valid @RequestBody Producto producto) {
+        return productoService.crear(producto);
     }
 
     @PutMapping("/{id}")
-    @PreAuthorize("hasRole('ADMINISTRADOR')")
-    @SecurityRequirement(name = OpenApiConfig.ESQUEMA_JWT)
-    @Operation(summary = "Actualizar producto (ADMINISTRADOR)")
-    public ProductoResponse actualizar(@PathVariable Long id, @Valid @RequestBody ProductoRequest req) {
-        return productoService.actualizar(id, req);
-    }
-
-    @PatchMapping("/{id}/stock")
-    @PreAuthorize("hasRole('ADMINISTRADOR')")
-    @SecurityRequirement(name = OpenApiConfig.ESQUEMA_JWT)
-    @Operation(summary = "Actualizar solo el stock (ADMINISTRADOR)", description = "Usado por la pantalla de inventario.")
-    public ProductoResponse actualizarStock(@PathVariable Long id, @Valid @RequestBody StockRequest req) {
-        return productoService.actualizarStock(id, req.stock());
+    @Operation(summary = "Actualizar producto o su stock (ADMINISTRADOR)")
+    public Producto actualizar(@PathVariable Long id, @Valid @RequestBody Producto producto) {
+        return productoService.actualizar(id, producto);
     }
 
     @DeleteMapping("/{id}")
     @ResponseStatus(HttpStatus.NO_CONTENT)
-    @PreAuthorize("hasRole('ADMINISTRADOR')")
-    @SecurityRequirement(name = OpenApiConfig.ESQUEMA_JWT)
-    @Operation(summary = "Eliminar producto (ADMINISTRADOR)", description = "409 si el producto ya aparece en boletas (en ese caso márcalo INACTIVO).")
+    @Operation(summary = "Eliminar producto (ADMINISTRADOR)", description = "409 si el producto ya aparece en boletas.")
     public void eliminar(@PathVariable Long id) {
         productoService.eliminar(id);
     }

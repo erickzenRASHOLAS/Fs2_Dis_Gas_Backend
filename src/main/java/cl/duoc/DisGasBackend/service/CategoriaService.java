@@ -1,69 +1,54 @@
 package cl.duoc.DisGasBackend.service;
 
-import cl.duoc.DisGasBackend.dto.CategoriaRequest;
-import cl.duoc.DisGasBackend.dto.CategoriaResponse;
-import cl.duoc.DisGasBackend.exception.ConflictoException;
-import cl.duoc.DisGasBackend.exception.RecursoNoEncontradoException;
 import cl.duoc.DisGasBackend.model.Categoria;
 import cl.duoc.DisGasBackend.repository.CategoriaRepository;
 import cl.duoc.DisGasBackend.repository.ProductoRepository;
 import java.util.List;
-import lombok.RequiredArgsConstructor;
+import org.springframework.http.HttpStatus;
 import org.springframework.stereotype.Service;
-import org.springframework.transaction.annotation.Transactional;
+import org.springframework.web.server.ResponseStatusException;
 
 @Service
-@RequiredArgsConstructor
 public class CategoriaService {
 
     private final CategoriaRepository categoriaRepository;
     private final ProductoRepository productoRepository;
 
-    @Transactional(readOnly = true)
-    public List<CategoriaResponse> listar() {
-        return categoriaRepository.findAllByOrderByNombreAsc().stream().map(CategoriaResponse::from).toList();
+    public CategoriaService(CategoriaRepository categoriaRepository, ProductoRepository productoRepository) {
+        this.categoriaRepository = categoriaRepository;
+        this.productoRepository = productoRepository;
     }
 
-    @Transactional(readOnly = true)
-    public CategoriaResponse obtener(Long id) {
-        return CategoriaResponse.from(buscar(id));
+    public List<Categoria> listar() {
+        return categoriaRepository.findAll();
     }
 
-    @Transactional
-    public CategoriaResponse crear(CategoriaRequest req) {
-        String nombre = req.nombre().trim();
-        if (categoriaRepository.existsByNombreIgnoreCase(nombre)) {
-            throw new ConflictoException("Ya existe una categoría con el nombre '" + nombre + "'");
-        }
-        Categoria c = new Categoria();
-        c.setNombre(nombre);
-        c.setDescripcion(req.descripcion());
-        return CategoriaResponse.from(categoriaRepository.save(c));
-    }
-
-    @Transactional
-    public CategoriaResponse actualizar(Long id, CategoriaRequest req) {
-        Categoria c = buscar(id);
-        String nombre = req.nombre().trim();
-        if (categoriaRepository.existsByNombreIgnoreCaseAndIdNot(nombre, id)) {
-            throw new ConflictoException("Ya existe una categoría con el nombre '" + nombre + "'");
-        }
-        c.setNombre(nombre);
-        c.setDescripcion(req.descripcion());
-        return CategoriaResponse.from(categoriaRepository.save(c));
-    }
-
-    @Transactional
-    public void eliminar(Long id) {
-        Categoria c = buscar(id);
-        if (productoRepository.countByCategoriaId(id) > 0) {
-            throw new ConflictoException("La categoría tiene productos asociados y no se puede eliminar");
-        }
-        categoriaRepository.delete(c);
-    }
-
-    private Categoria buscar(Long id) {
+    public Categoria obtener(Long id) {
         return categoriaRepository.findById(id)
-                .orElseThrow(() -> new RecursoNoEncontradoException("Categoría no encontrada (id " + id + ")"));
+                .orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND, "Categoria no encontrada"));
+    }
+
+    public Categoria crear(Categoria categoria) {
+        if (categoriaRepository.existsByNombre(categoria.getNombre())) {
+            throw new ResponseStatusException(HttpStatus.CONFLICT, "Ya existe una categoria con ese nombre");
+        }
+        categoria.setId(null);   // el id lo genera la base de datos
+        return categoriaRepository.save(categoria);
+    }
+
+    public Categoria actualizar(Long id, Categoria datos) {
+        Categoria categoria = obtener(id);
+        categoria.setNombre(datos.getNombre());
+        categoria.setDescripcion(datos.getDescripcion());
+        return categoriaRepository.save(categoria);
+    }
+
+    public void eliminar(Long id) {
+        Categoria categoria = obtener(id);
+        // Regla de negocio: no se puede borrar una categoria que todavia tiene productos
+        if (productoRepository.existsByCategoriaId(id)) {
+            throw new ResponseStatusException(HttpStatus.CONFLICT, "La categoria tiene productos asociados");
+        }
+        categoriaRepository.delete(categoria);
     }
 }

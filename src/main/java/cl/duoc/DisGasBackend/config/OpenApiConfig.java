@@ -3,27 +3,25 @@ package cl.duoc.DisGasBackend.config;
 import io.swagger.v3.oas.models.Components;
 import io.swagger.v3.oas.models.OpenAPI;
 import io.swagger.v3.oas.models.info.Info;
+import io.swagger.v3.oas.models.security.SecurityRequirement;
 import io.swagger.v3.oas.models.security.SecurityScheme;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
 
+/** Swagger: documentacion automatica en /swagger-ui.html, con boton "Authorize" para pegar el token JWT. */
 @Configuration
 public class OpenApiConfig {
 
-    public static final String ESQUEMA_JWT = "bearerAuth";
-
     @Bean
-    OpenAPI openAPI() {
+    public OpenAPI openAPI() {
         return new OpenAPI()
                 .info(new Info()
-                        .title("API Gas El Volcán (DisGas)")
+                        .title("API Gas El Volcan (DisGas)")
                         .version("v1")
-                        .description("API REST de pedidos, productos, inventario y usuarios. "
-                                + "Para probar endpoints protegidos: POST /v1/auth/login, copia el accessToken "
-                                + "y pégalo en el botón Authorize."))
-                .components(new Components().addSecuritySchemes(ESQUEMA_JWT, new SecurityScheme()
-                        .type(SecurityScheme.Type.HTTP)
-                        .scheme("bearer")
-                        .bearerFormat("JWT")));
+                        .description("Para probar rutas protegidas: haz POST /v1/auth/login, copia el campo token "
+                                + "y pegalo en el boton Authorize."))
+                .addSecurityItem(new SecurityRequirement().addList("bearerAuth"))
+                .components(new Components().addSecuritySchemes("bearerAuth",
+                        new SecurityScheme().type(SecurityScheme.Type.HTTP).scheme("bearer").bearerFormat("JWT")));
     }
 }

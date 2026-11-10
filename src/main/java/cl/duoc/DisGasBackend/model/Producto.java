@@ -2,8 +2,6 @@ package cl.duoc.DisGasBackend.model;
 
 import jakarta.persistence.Column;
 import jakarta.persistence.Entity;
-import jakarta.persistence.EnumType;
-import jakarta.persistence.Enumerated;
 import jakarta.persistence.FetchType;
 import jakarta.persistence.GeneratedValue;
 import jakarta.persistence.GenerationType;
@@ -11,10 +9,14 @@ import jakarta.persistence.Id;
 import jakarta.persistence.JoinColumn;
 import jakarta.persistence.ManyToOne;
 import jakarta.persistence.Table;
+import jakarta.validation.constraints.Min;
+import jakarta.validation.constraints.NotBlank;
+import jakarta.validation.constraints.NotNull;
 import lombok.Getter;
 import lombok.NoArgsConstructor;
 import lombok.Setter;
 
+/** Tabla PRODUCTO. Cada producto pertenece a una categoria. */
 @Entity
 @Table(name = "producto")
 @Getter
@@ -26,30 +28,34 @@ public class Producto {
     @GeneratedValue(strategy = GenerationType.IDENTITY)
     private Long id;
 
-    @Column(name = "codigo", nullable = false, unique = true, length = 40)
-    private String codigo;
-
-    @Column(name = "nombre", nullable = false, length = 120)
+    @NotBlank(message = "El nombre es obligatorio")
+    @Column(nullable = false)
     private String nombre;
 
-    @Column(name = "descripcion", length = 255)
     private String descripcion;
 
     /** Precio en pesos chilenos (sin decimales). */
-    @Column(name = "precio", nullable = false)
+    @NotNull(message = "El precio es obligatorio")
+    @Min(value = 0, message = "El precio no puede ser negativo")
+    @Column(nullable = false)
     private Integer precio;
 
-    @Column(name = "stock", nullable = false)
-    private Integer stock = 0;
+    @NotNull(message = "El stock es obligatorio")
+    @Min(value = 0, message = "El stock no puede ser negativo")
+    @Column(nullable = false)
+    private Integer stock;
 
+    /** Si el stock baja de este numero, el inventario lo marca como critico. */
+    @NotNull
+    @Min(0)
     @Column(name = "stock_minimo", nullable = false)
     private Integer stockMinimo = 0;
 
-    @Enumerated(EnumType.STRING)
-    @Column(name = "estado", nullable = false, length = 10)
-    private Estado estado = Estado.ACTIVO;
+    /** false = producto oculto en la tienda (no se borra para no perder el historial de boletas). */
+    private boolean activo = true;
 
-    @ManyToOne(fetch = FetchType.LAZY, optional = false)
+    @NotNull(message = "La categoria es obligatoria")
+    @ManyToOne(fetch = FetchType.EAGER)
     @JoinColumn(name = "categoria_id", nullable = false)
     private Categoria categoria;
 }

@@ -6,10 +6,12 @@ import jakarta.persistence.GeneratedValue;
 import jakarta.persistence.GenerationType;
 import jakarta.persistence.Id;
 import jakarta.persistence.Table;
+import jakarta.validation.constraints.NotBlank;
 import lombok.Getter;
 import lombok.NoArgsConstructor;
 import lombok.Setter;
 
+/** Tabla CATEGORIA. */
 @Entity
 @Table(name = "categoria")
 @Getter
@@ -21,9 +23,9 @@ public class Categoria {
     @GeneratedValue(strategy = GenerationType.IDENTITY)
     private Long id;
 
-    @Column(name = "nombre", nullable = false, unique = true, length = 80)
+    @NotBlank(message = "El nombre es obligatorio")
+    @Column(nullable = false, unique = true)
     private String nombre;
 
-    @Column(name = "descripcion", length = 255)
     private String descripcion;
 }

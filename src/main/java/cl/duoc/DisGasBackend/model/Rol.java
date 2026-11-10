@@ -1,9 +1,8 @@
 package cl.duoc.DisGasBackend.model;
 
-/** Roles del sistema. ADMINISTRADOR, VENDEDOR y CLIENTE vienen de la pauta; REPARTIDOR cubre el flujo de despacho del frontend. */
+/** Los 3 roles que pide la pauta. */
 public enum Rol {
-    ADMINISTRADOR,
-    VENDEDOR,
-    CLIENTE,
-    REPARTIDOR
+    ADMINISTRADOR,  // acceso total
+    VENDEDOR,       // solo ve productos y boletas
+    CLIENTE         // solo la tienda: compra y ve sus boletas
 }

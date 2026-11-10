@@ -1,97 +1,82 @@
 package cl.duoc.DisGasBackend.config;
 
-import cl.duoc.DisGasBackend.security.CorsProperties;
-import cl.duoc.DisGasBackend.security.RestAuthenticationEntryPoint;
-import java.util.List;
-import org.springframework.beans.factory.annotation.Qualifier;
+import cl.duoc.DisGasBackend.security.JwtAuthFilter;
+import cl.duoc.DisGasBackend.security.JwtUtil;
+import jakarta.servlet.http.HttpServletResponse;
+import java.io.IOException;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
 import org.springframework.http.HttpMethod;
-import org.springframework.security.config.annotation.method.configuration.EnableMethodSecurity;
+import org.springframework.security.config.Customizer;
 import org.springframework.security.config.annotation.web.builders.HttpSecurity;
 import org.springframework.security.config.annotation.web.configuration.EnableWebSecurity;
-import org.springframework.security.config.annotation.web.configurers.AbstractHttpConfigurer;
 import org.springframework.security.config.http.SessionCreationPolicy;
 import org.springframework.security.crypto.bcrypt.BCryptPasswordEncoder;
 import org.springframework.security.crypto.password.PasswordEncoder;
-import org.springframework.security.oauth2.jwt.JwtDecoder;
-import org.springframework.security.oauth2.server.resource.authentication.JwtAuthenticationConverter;
-import org.springframework.security.oauth2.server.resource.authentication.JwtGrantedAuthoritiesConverter;
 import org.springframework.security.web.SecurityFilterChain;
-import org.springframework.web.cors.CorsConfiguration;
-import org.springframework.web.cors.CorsConfigurationSource;
-import org.springframework.web.cors.UrlBasedCorsConfigurationSource;
+import org.springframework.security.web.authentication.UsernamePasswordAuthenticationFilter;
 
 /**
- * Spring Security sin sesión (stateless): cada petición se autentica con el JWT del header
- * "Authorization: Bearer ...". Los permisos por rol se declaran con @PreAuthorize en los controladores.
+ * Aqui se define QUIEN puede entrar a CADA ruta (autorizacion por roles).
+ * Spring evalua las reglas en orden y usa la primera que coincide.
  */
 @Configuration
 @EnableWebSecurity
-@EnableMethodSecurity
 public class SecurityConfig {
 
-    private final RestAuthenticationEntryPoint entryPoint;
+    private final JwtUtil jwtUtil;
 
-    public SecurityConfig(RestAuthenticationEntryPoint entryPoint) {
-        this.entryPoint = entryPoint;
+    public SecurityConfig(JwtUtil jwtUtil) {
+        this.jwtUtil = jwtUtil;
     }
 
+    /** Las contraseñas se guardan con BCrypt (hash de una sola via). */
     @Bean
-    SecurityFilterChain filterChain(HttpSecurity http, JwtDecoder jwtDecoder, @Qualifier("corsConfigurationSource") CorsConfigurationSource cors)
-            throws Exception {
-        http
-                .cors(c -> c.configurationSource(cors))
-                .csrf(AbstractHttpConfigurer::disable)
-                .sessionManagement(s -> s.sessionCreationPolicy(SessionCreationPolicy.STATELESS))
-                .authorizeHttpRequests(a -> a
-                        .requestMatchers(HttpMethod.OPTIONS, "/**").permitAll()
-                        .requestMatchers("/v1/auth/**").permitAll()
-                        .requestMatchers(HttpMethod.GET, "/v1/productos", "/v1/productos/**",
-                                "/v1/categorias", "/v1/categorias/**").permitAll()
-                        .requestMatchers("/swagger-ui.html", "/swagger-ui/**", "/v3/api-docs", "/v3/api-docs/**")
-                        .permitAll()
-                        .requestMatchers("/actuator/health", "/actuator/health/**", "/actuator/info").permitAll()
-                        // Segunda capa por URL (además de @PreAuthorize): el 403 se resuelve antes de validar el cuerpo.
-                        .requestMatchers("/v1/usuarios/me", "/v1/usuarios/me/**").authenticated()
-                        .requestMatchers("/v1/usuarios", "/v1/usuarios/**").hasRole("ADMINISTRADOR")
-                        .requestMatchers("/v1/productos", "/v1/productos/**",
-                                "/v1/categorias", "/v1/categorias/**").hasRole("ADMINISTRADOR")
-                        .anyRequest().authenticated())
-                .oauth2ResourceServer(o -> o
-                        .jwt(j -> j.decoder(jwtDecoder).jwtAuthenticationConverter(conversorDeRoles()))
-                        .authenticationEntryPoint(entryPoint)
-                        .accessDeniedHandler(entryPoint))
-                .exceptionHandling(e -> e
-                        .authenticationEntryPoint(entryPoint)
-                        .accessDeniedHandler(entryPoint));
-        return http.build();
-    }
-
-    /** Convierte el claim "roles": ["ADMINISTRADOR"] en la autoridad ROLE_ADMINISTRADOR. */
-    private JwtAuthenticationConverter conversorDeRoles() {
-        JwtGrantedAuthoritiesConverter authorities = new JwtGrantedAuthoritiesConverter();
-        authorities.setAuthoritiesClaimName("roles");
-        authorities.setAuthorityPrefix("ROLE_");
-        JwtAuthenticationConverter converter = new JwtAuthenticationConverter();
-        converter.setJwtGrantedAuthoritiesConverter(authorities);
-        return converter;
-    }
-
-    @Bean
-    PasswordEncoder passwordEncoder() {
+    public PasswordEncoder passwordEncoder() {
         return new BCryptPasswordEncoder();
     }
 
     @Bean
-    CorsConfigurationSource corsConfigurationSource(CorsProperties props) {
-        CorsConfiguration config = new CorsConfiguration();
-        config.setAllowedOrigins(props.allowedOrigins());
-        config.setAllowedMethods(List.of("GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"));
-        config.setAllowedHeaders(List.of("Authorization", "Content-Type", "Accept"));
-        config.setMaxAge(3600L);
-        UrlBasedCorsConfigurationSource source = new UrlBasedCorsConfigurationSource();
-        source.registerCorsConfiguration("/**", config);
-        return source;
+    public SecurityFilterChain filterChain(HttpSecurity http) throws Exception {
+        http
+                .csrf(csrf -> csrf.disable())                 // no usamos cookies, por eso no hace falta CSRF
+                .cors(Customizer.withDefaults())              // usa la configuracion de CorsConfig
+                .sessionManagement(s -> s.sessionCreationPolicy(SessionCreationPolicy.STATELESS)) // sin sesion en el servidor
+                .authorizeHttpRequests(auth -> auth
+                        // --- Rutas publicas ---
+                        .requestMatchers(HttpMethod.OPTIONS, "/**").permitAll()
+                        .requestMatchers("/v1/auth/**").permitAll()
+                        .requestMatchers("/swagger-ui.html", "/swagger-ui/**", "/v3/api-docs/**", "/error").permitAll()
+
+                        // --- Productos y categorias: ver la tienda es publico, modificar es solo del ADMIN ---
+                        .requestMatchers(HttpMethod.GET, "/v1/productos/todos").hasAnyRole("ADMINISTRADOR", "VENDEDOR")
+                        .requestMatchers(HttpMethod.GET, "/v1/productos/**", "/v1/categorias/**").permitAll()
+                        .requestMatchers("/v1/productos/**", "/v1/categorias/**").hasRole("ADMINISTRADOR")
+
+                        // --- Usuarios: solo ADMIN (el perfil propio esta en /v1/perfil) ---
+                        .requestMatchers("/v1/usuarios/**").hasRole("ADMINISTRADOR")
+
+                        // --- Boletas ---
+                        .requestMatchers(HttpMethod.GET, "/v1/boletas/**").hasAnyRole("ADMINISTRADOR", "VENDEDOR", "CLIENTE")
+                        .requestMatchers(HttpMethod.POST, "/v1/boletas").hasAnyRole("ADMINISTRADOR", "CLIENTE")
+                        .requestMatchers("/v1/boletas/*/cancelar").hasAnyRole("ADMINISTRADOR", "CLIENTE")
+                        .requestMatchers("/v1/boletas/**").hasRole("ADMINISTRADOR")
+
+                        // --- Todoo lo demas (ej: /v1/perfil): cualquier usuario con sesion ---
+                        .anyRequest().authenticated())
+                // Respuestas cuando no se puede entrar
+                .exceptionHandling(e -> e
+                        .authenticationEntryPoint((req, res, ex) -> responder(res, 401, "Debes iniciar sesion (token ausente, invalido o vencido)"))
+                        .accessDeniedHandler((req, res, ex) -> responder(res, 403, "No tienes permisos para esta accion")))
+                // Nuestro filtro JWT corre antes del filtro de login por defecto de Spring
+                .addFilterBefore(new JwtAuthFilter(jwtUtil), UsernamePasswordAuthenticationFilter.class);
+
+        return http.build();
+    }
+
+    private void responder(HttpServletResponse res, int status, String mensaje) throws IOException {
+        res.setStatus(status);
+        res.setContentType("application/json;charset=UTF-8");
+        res.getWriter().write("{\"status\":" + status + ",\"mensaje\":\"" + mensaje + "\"}");
     }
 }
