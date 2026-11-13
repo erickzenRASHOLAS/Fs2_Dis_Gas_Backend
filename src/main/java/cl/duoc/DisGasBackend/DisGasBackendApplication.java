@@ -4,6 +4,7 @@ import java.util.TimeZone;
 import org.springframework.boot.SpringApplication;
 import org.springframework.boot.autoconfigure.SpringBootApplication;
 
+/** Punto de entrada. @SpringBootApplication activa la configuracion automatica y busca los @Component, @Service, @RestController... */
 @SpringBootApplication
 public class DisGasBackendApplication {
 

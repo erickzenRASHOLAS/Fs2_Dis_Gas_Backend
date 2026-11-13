@@ -17,6 +17,7 @@ import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.ResponseStatus;
 import org.springframework.web.bind.annotation.RestController;
 
+/** CONTROLLER de categorias: GET (lectura publica), POST/PUT/DELETE (solo ADMINISTRADOR, lo define SecurityConfig). */
 @RestController
 @RequestMapping("/v1/categorias")
 @Tag(name = "Categorias", description = "Lectura publica. Crear, editar y eliminar: solo ADMINISTRADOR")

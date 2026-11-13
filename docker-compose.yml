@@ -1,40 +1,74 @@
-# Levanta MySQL + backend en modo "producción" para probar localmente antes de AWS.
-#   cp .env.example .env   (editar valores)
-#   docker compose up --build
+# =====================================================================
+# Entorno Docker de DisGas. Replica la arquitectura de AWS:
+#
+#   db (equivale a RDS)  <--  backend (equivale a EC2)  <--  frontend (equivale a S3, opcional)
+#
+# Levantar toodo:   docker compose up --build
+# Detener:         docker compose down          (los datos se conservan)
+# Borrar datos:    docker compose down -v       (elimina tambien la base de datos)
+#
+# Las variables tienen valores por defecto para que funcione sin configurar nada.
+# Para cambiarlas: copia .env.example a .env y editalo.
+# =====================================================================
 services:
-  mysql:
-    image: mysql:8.4
-    environment:
-      MYSQL_ROOT_PASSWORD: ${MYSQL_ROOT_PASSWORD}
-      MYSQL_DATABASE: disgas
-      MYSQL_USER: ${DB_USERNAME}
-      MYSQL_PASSWORD: ${DB_PASSWORD}
-      TZ: America/Santiago
-    command: --character-set-server=utf8mb4 --collation-server=utf8mb4_unicode_ci
-    volumes:
-      - mysql_data:/var/lib/mysql
-    healthcheck:
-      test: ["CMD", "mysqladmin", "ping", "-h", "localhost", "-p${MYSQL_ROOT_PASSWORD}"]
-      interval: 10s
-      timeout: 5s
-      retries: 10
 
-  backend:
-    build: .
-    depends_on:
-      mysql:
-        condition: service_healthy
-    ports:
-      - "8080:8080"
+  # ---------- Base de datos MySQL ----------
+  db:
+    image: mysql:8.4
+    container_name: disgas-db
+    restart: unless-stopped
     environment:
-      SPRING_PROFILES_ACTIVE: prod
-      DB_URL: jdbc:mysql://mysql:3306/disgas?serverTimezone=America/Santiago&allowPublicKeyRetrieval=true
-      DB_USERNAME: ${DB_USERNAME}
-      DB_PASSWORD: ${DB_PASSWORD}
-      JWT_SECRET: ${JWT_SECRET}
-      CORS_ALLOWED_ORIGINS: ${CORS_ALLOWED_ORIGINS}
-      ADMIN_EMAIL: ${ADMIN_EMAIL}
-      ADMIN_PASSWORD: ${ADMIN_PASSWORD}
+      MYSQL_ROOT_PASSWORD: ${DB_ROOT_PASSWORD:-root1234}   # clave del administrador de MySQL
+      MYSQL_DATABASE: ${DB_NAME:-disgas}                   # se crea sola al iniciar por primera vez
+      MYSQL_USER: ${DB_USER:-disgas}                       # usuario que usara el backend
+      MYSQL_PASSWORD: ${DB_PASSWORD:-disgas1234}
+    command: --character-set-server=utf8mb4 --collation-server=utf8mb4_unicode_ci   # tildes y ñ correctas
+    ports:
+      # OPCIONAL: para mirar la base con MySQL Workbench / DBeaver en localhost:3307.
+      # Solo accesible desde tu computador (127.0.0.1). En AWS, RDS NO se expone.
+      - "127.0.0.1:3307:3306"
+    volumes:
+      - db_data:/var/lib/mysql        # los datos viven en un volumen: sobreviven aunque borres el contenedor
+    healthcheck:                      # el backend espera a que MySQL responda antes de arrancar
+      test: ["CMD", "mysqladmin", "ping", "-h", "127.0.0.1", "-uroot", "-p${DB_ROOT_PASSWORD:-root1234}"]
+      interval: 5s
+      timeout: 5s
+      retries: 20
+
+  # ---------- Backend Spring Boot ----------
+  backend:
+    build: .                          # construye la imagen con el Dockerfile de esta carpeta
+    container_name: disgas-backend
+    restart: unless-stopped
+    depends_on:
+      db:
+        condition: service_healthy    # no arranca hasta que la base de datos este lista
+    ports:
+      - "8080:8080"                   # puerto-del-computador:puerto-del-contenedor
+    environment:
+      SPRING_PROFILES_ACTIVE: prod    # activa application-prod.properties (MySQL)
+      DB_HOST: db                     # dentro de Docker, el host es el NOMBRE del servicio
+      DB_NAME: ${DB_NAME:-disgas}
+      DB_USER: ${DB_USER:-disgas}
+      DB_PASSWORD: ${DB_PASSWORD:-disgas1234}
+      JWT_SECRET: ${JWT_SECRET:-clave-local-docker-cambiar-en-aws-0123456789abcdef}
+      CORS_ORIGIN: ${CORS_ORIGIN:-http://localhost:3000,http://localhost:5173}
+      DEMO_USERS: ${DEMO_USERS:-true}
+
+  # ---------- Frontend (OPCIONAL) ----------
+  # Para activarlo: quita los # de las lineas siguientes. Requiere que la carpeta del frontend
+  # (FS2_DisGas) este al lado de esta carpeta y tenga su Dockerfile (viene en el zip de cambios).
+  #
+  # frontend:
+  #   build:
+  #     context: ../FS2_DisGas
+  #     args:
+  #       VITE_API_URL: http://localhost:8080
+  #   container_name: disgas-frontend
+  #   ports:
+  #     - "3000:80"
+  #   depends_on:
+  #     - backend
 
 volumes:
-  mysql_data:
+  db_data:

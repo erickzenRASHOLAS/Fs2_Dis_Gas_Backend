@@ -105,6 +105,24 @@ Idea clave para decir en la presentación: **ocultar botones en el frontend es s
 
 ---
 
+## 7. Base de datos (explicado en `docs/BASE_DE_DATOS.md`)
+
+- **Modelo:** 5 tablas (Figura 1 de la pauta). Diagrama en `docs/database/diagrama_modelo_datos.png`.
+- **Cómo se crean las tablas:** cada `@Entity` es una tabla; Hibernate las crea al arrancar (`ddl-auto=update`). Las claves foráneas salen de `@ManyToOne`.
+- **Cómo se llenan:** `DataInitializer` carga el catálogo y los usuarios de demo solo si las tablas están vacías.
+- **Dónde vive:** H2 en desarrollo · MySQL en el contenedor `db` con un volumen (Docker) · RDS (AWS).
+
+## 8. Despliegue con Docker (explicado en `DOCKER.md`)
+
+- **Imagen vs contenedor:** la imagen es la "receta" empaquetada (Java + tu JAR); el contenedor es esa imagen funcionando.
+- **Dockerfile en 2 etapas:** la primera compila con Maven; la segunda copia solo el JAR a una imagen liviana con Java. Resultado: imagen pequeña y sin código fuente.
+- **docker-compose:** levanta y conecta 2 contenedores (`db` y `backend`) con un comando. `depends_on` + `healthcheck` hacen que el backend espere a MySQL.
+- **Variables de entorno:** el mismo JAR corre en Docker y en AWS; solo cambia `SPRING_PROFILES_ACTIVE=prod` y las variables (`DB_HOST`, `JWT_SECRET`...). Nada sensible va en el código.
+- **`DB_HOST=db`:** dentro de Docker los contenedores se encuentran por el nombre del servicio.
+- **Volumen `db_data`:** los datos sobreviven aunque se borre el contenedor.
+
+---
+
 ## Preguntas probables (respuestas cortas)
 
 - **¿Para qué sirven los DTO?** Para definir qué datos acepta cada endpoint y validarlos (ej. el cliente no puede enviar el precio ni el rol).
@@ -114,7 +132,12 @@ Idea clave para decir en la presentación: **ocultar botones en el frontend es s
 - **¿Por qué `ddl-auto=update` y no migraciones?** Simplicidad para el curso; en producción real se usaría Flyway o Liquibase.
 - **¿Para qué sirve `@Transactional`?** Para que un pedido se guarde completo o no se guarde nada.
 - **¿Qué es `@Autowired`/inyección de dependencias?** Spring crea los objetos (services, repositories) y los entrega por el constructor; aquí usamos inyección por constructor.
-- **¿Por qué H2 en desarrollo y MySQL en AWS?** Con H2 se desarrolla sin instalar nada; el perfil `prod` cambia solo la conexión por variables de entorno, el mismo JAR corre en ambos.
+- **¿Por qué H2 en desarrollo y MySQL en Docker/AWS?** Con H2 se desarrolla sin instalar nada; el perfil `prod` cambia solo la conexión por variables de entorno, el mismo JAR corre en todos.
+- **¿Qué es un volumen de Docker?** Una carpeta administrada por Docker fuera del contenedor, para que los datos de MySQL no se pierdan al recrearlo.
+- **¿Por qué `DB_HOST` es `db` y no `localhost`?** Cada contenedor tiene su propio `localhost`; en la red de compose los servicios se llaman por su nombre.
+- **¿Para qué sirve `healthcheck` / `depends_on`?** Para que el backend no arranque antes de que MySQL esté listo.
+- **¿Diferencia entre Dockerfile y docker-compose?** El Dockerfile construye UNA imagen; compose orquesta VARIOS contenedores (red, variables, volúmenes, puertos).
+- **¿Por qué la imagen se arma en 2 etapas?** Para no llevar Maven ni el código a producción: imagen más liviana y más segura.
 
 ## Limitaciones conocidas (conviene mencionarlas con honestidad)
 

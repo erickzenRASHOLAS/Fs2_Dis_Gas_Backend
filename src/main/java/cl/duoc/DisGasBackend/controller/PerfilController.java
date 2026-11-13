@@ -13,6 +13,7 @@ import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RestController;
 
+/** CONTROLLER del perfil propio. authentication.getName() entrega el correo que viene dentro del token JWT. */
 @RestController
 @RequestMapping("/v1/perfil")
 @Tag(name = "Perfil", description = "Datos del usuario con sesion iniciada (cualquier rol)")

@@ -43,9 +43,10 @@
 			<scope>runtime</scope>
 		</dependency>
 		<!-- Seguridad: Spring Security + JWT (jjwt) -->
+		<!-- Seguridad + JWT: incluye Spring Security OAuth2 Resource Server y Nimbus -->
 		<dependency>
 			<groupId>org.springframework.boot</groupId>
-			<artifactId>spring-boot-starter-security</artifactId>
+			<artifactId>spring-boot-starter-security-oauth2-resource-server</artifactId>
 		</dependency>
 		<dependency>
 			<groupId>io.jsonwebtoken</groupId>
@@ -63,6 +64,11 @@
 			<artifactId>jjwt-jackson</artifactId>
 			<version>${jjwt.version}</version>
 			<scope>runtime</scope>
+		</dependency>
+		<!-- Actuator: expone /actuator/health (estado de la app y de la base de datos) -->
+		<dependency>
+			<groupId>org.springframework.boot</groupId>
+			<artifactId>spring-boot-starter-actuator</artifactId>
 		</dependency>
 		<!-- Swagger -->
 		<dependency>
@@ -100,6 +106,8 @@
 	</dependencies>
 
 	<build>
+		<!-- El JAR se llamara app.jar: asi el Dockerfile siempre sabe cual copiar -->
+		<finalName>app</finalName>
 		<plugins>
 			<plugin>
 				<groupId>org.springframework.boot</groupId>

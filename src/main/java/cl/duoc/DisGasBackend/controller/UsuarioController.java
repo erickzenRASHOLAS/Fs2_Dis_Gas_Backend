@@ -19,6 +19,7 @@ import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.ResponseStatus;
 import org.springframework.web.bind.annotation.RestController;
 
+/** CONTROLLER de administracion de usuarios (solo ADMINISTRADOR). */
 @RestController
 @RequestMapping("/v1/usuarios")
 @Tag(name = "Usuarios", description = "Administracion de usuarios: solo ADMINISTRADOR")

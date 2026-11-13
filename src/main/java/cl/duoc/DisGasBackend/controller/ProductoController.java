@@ -17,6 +17,7 @@ import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.ResponseStatus;
 import org.springframework.web.bind.annotation.RestController;
 
+/** CONTROLLER de productos e inventario. @RequestMapping("/v1/productos") = todas las rutas empiezan con /v1/productos. */
 @RestController
 @RequestMapping("/v1/productos")
 @Tag(name = "Productos", description = "Catalogo e inventario. Lectura publica; crear/editar/eliminar solo ADMINISTRADOR")

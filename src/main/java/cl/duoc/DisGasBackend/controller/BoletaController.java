@@ -19,6 +19,7 @@ import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.ResponseStatus;
 import org.springframework.web.bind.annotation.RestController;
 
+/** CONTROLLER de boletas (pedidos). El rol del usuario sale del token JWT y decide que boletas puede ver. */
 @RestController
 @RequestMapping("/v1/boletas")
 @Tag(name = "Boletas (pedidos)", description = "CLIENTE ve solo las suyas; ADMINISTRADOR y VENDEDOR ven todas")

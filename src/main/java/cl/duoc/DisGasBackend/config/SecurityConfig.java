@@ -47,6 +47,7 @@ public class SecurityConfig {
                         .requestMatchers(HttpMethod.OPTIONS, "/**").permitAll()
                         .requestMatchers("/v1/auth/**").permitAll()
                         .requestMatchers("/swagger-ui.html", "/swagger-ui/**", "/v3/api-docs/**", "/error").permitAll()
+                        .requestMatchers("/actuator/health", "/actuator/health/**").permitAll()   // para comprobar que la app y la BD estan vivas
 
                         // --- Productos y categorias: ver la tienda es publico, modificar es solo del ADMIN ---
                         .requestMatchers(HttpMethod.GET, "/v1/productos/todos").hasAnyRole("ADMINISTRADOR", "VENDEDOR")
@@ -62,7 +63,7 @@ public class SecurityConfig {
                         .requestMatchers("/v1/boletas/*/cancelar").hasAnyRole("ADMINISTRADOR", "CLIENTE")
                         .requestMatchers("/v1/boletas/**").hasRole("ADMINISTRADOR")
 
-                        // --- Todoo lo demas (ej: /v1/perfil): cualquier usuario con sesion ---
+                        // --- Todo lo demas (ej: /v1/perfil): cualquier usuario con sesion ---
                         .anyRequest().authenticated())
                 // Respuestas cuando no se puede entrar
                 .exceptionHandling(e -> e

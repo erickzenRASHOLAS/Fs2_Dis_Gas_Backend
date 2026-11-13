@@ -1,18 +1,29 @@
 # DisGas Backend — Gas El Volcán
 
-API REST con **Spring Boot**, **MySQL** (H2 en desarrollo), **Spring Security + JWT** y **Swagger**.
-Es el backend de la tienda de gas a domicilio (frontend: `FS2_DisGas`).
+API REST con **Spring Boot**, **MySQL**, **Spring Security + JWT** y **Swagger**, lista para desplegar con **Docker**.
+Backend de la tienda de gas a domicilio (frontend: `FS2_DisGas`).
 
-## Ejecutar en tu computador
+## Inicio rápido con Docker (recomendado)
 
-No necesitas instalar base de datos: en desarrollo usa **H2 en memoria**.
+Requiere Docker Desktop abierto. En la carpeta del proyecto:
 
-```bash
-./mvnw spring-boot:run          # en Windows: mvnw.cmd spring-boot:run   (o el botón Run de IntelliJ)
+```powershell
+docker compose up --build
 ```
 
 - Swagger: http://localhost:8080/swagger-ui.html
-- Catálogo de ejemplo: http://localhost:8080/v1/productos
+- Catálogo: http://localhost:8080/v1/productos
+- Salud: http://localhost:8080/actuator/health
+
+Guía completa, comandos y errores frecuentes: **[DOCKER.md](DOCKER.md)**.
+
+## Ejecutar sin Docker (desarrollo)
+
+No necesitas base de datos: usa **H2 en memoria**.
+
+```bash
+./mvnw spring-boot:run          # Windows: mvnw.cmd spring-boot:run   (o el botón Run de IntelliJ)
+```
 
 **Probar rutas protegidas en Swagger:** `POST /v1/auth/login` → copiar el campo `token` → botón **Authorize** → pegar el token.
 
@@ -23,6 +34,15 @@ No necesitas instalar base de datos: en desarrollo usa **H2 en memoria**.
 | ADMINISTRADOR | admin@volcan.cl | admin123 |
 | VENDEDOR | ana.vendedora@volcan.cl | 123456 |
 | CLIENTE | juan.perez@email.com | 123456 |
+
+## Documentación
+
+| Archivo | Contenido |
+|---|---|
+| [DOCKER.md](DOCKER.md) | Despliegue con Docker paso a paso |
+| [docs/BASE_DE_DATOS.md](docs/BASE_DE_DATOS.md) | Modelo de datos con diagrama, gestión y respaldo de la base |
+| [DEPLOY_AWS.md](DEPLOY_AWS.md) | Llevar el backend a AWS (EC2 + RDS) |
+| [GUIA_DE_ESTUDIO.md](GUIA_DE_ESTUDIO.md) | Qué explicar en la presentación, indicador por indicador |
 
 ## Estructura del proyecto
 
@@ -36,11 +56,13 @@ src/main/java/cl/duoc/DisGasBackend
 ├── security/     JwtUtil (crea/lee tokens) y JwtAuthFilter (revisa el token en cada petición)
 ├── config/       SecurityConfig (roles por ruta), CorsConfig, OpenApiConfig (Swagger), DataInitializer (datos iniciales)
 └── exception/    ManejadorErrores (respuestas de error en JSON)
+Dockerfile · docker-compose.yml · .env.example      Despliegue con Docker
+docs/                                               Documentación y diagrama de la base de datos
 ```
 
 ## Modelo de datos
 
-`USUARIO → BOLETA → DETALLE_BOLETA ← PRODUCTO ← CATEGORIA` (Figura 1 de la pauta).
+`USUARIO → BOLETA → DETALLE_BOLETA ← PRODUCTO ← CATEGORIA` (Figura 1 de la pauta). Diagrama y explicación en [docs/BASE_DE_DATOS.md](docs/BASE_DE_DATOS.md).
 Hibernate crea las tablas solo (`spring.jpa.hibernate.ddl-auto=update`) y `DataInitializer` carga el catálogo y los usuarios de demo.
 
 ## Roles y permisos (pauta)
@@ -72,6 +94,7 @@ Hibernate crea las tablas solo (`spring.jpa.hibernate.ddl-auto=update`) y `DataI
 | GET | `/v1/boletas` · `/v1/boletas/{id}` | ADMINISTRADOR, VENDEDOR, CLIENTE |
 | PUT | `/v1/boletas/{id}/cancelar` | CLIENTE, ADMINISTRADOR |
 | PUT | `/v1/boletas/{id}/estado` | ADMINISTRADOR |
+| GET | `/actuator/health` | público |
 
 Códigos: `200/201/204` éxito · `400` datos inválidos · `401` sin token / token inválido · `403` sin permiso · `404` no existe · `409` conflicto (correo repetido, sin stock, cambio de estado inválido).
 
@@ -102,7 +125,12 @@ Códigos: `200/201/204` éxito · `400` datos inválidos · `401` sin token / to
 - `BoletaServiceTest`: lógica de negocio (unitaria, con Mockito).
 - `ApiIntegrationTest`: API completa con JWT y roles sobre H2.
 
-## Despliegue en AWS (sin Docker)
+## Variables de entorno (perfil `prod`: Docker y AWS)
 
-Ver **`DEPLOY_AWS.md`**. Resumen: RDS MySQL privado + EC2 (Amazon Corretto 17) con el JAR como servicio `systemd`
-y variables de entorno en `/etc/app.env`.
+| Variable | Descripción | En `docker-compose.yml` |
+|---|---|---|
+| `DB_HOST` | Host de MySQL | `db` (nombre del servicio) |
+| `DB_NAME`, `DB_USER`, `DB_PASSWORD` | Base y credenciales | valores por defecto o `.env` |
+| `JWT_SECRET` | Clave de firma (32+ caracteres) | valor por defecto local |
+| `CORS_ORIGIN` | URL del frontend, sin barra final | `http://localhost:3000,http://localhost:5173` |
+| `DEMO_USERS` | `false` desactiva los usuarios de demo | `true` |
