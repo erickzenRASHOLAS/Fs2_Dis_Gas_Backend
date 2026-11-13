@@ -63,7 +63,7 @@ public class SecurityConfig {
                         .requestMatchers("/v1/boletas/*/cancelar").hasAnyRole("ADMINISTRADOR", "CLIENTE")
                         .requestMatchers("/v1/boletas/**").hasRole("ADMINISTRADOR")
 
-                        // --- Todo lo demas (ej: /v1/perfil): cualquier usuario con sesion ---
+                        // --- Toodo lo demas (ej: /v1/perfil): cualquier usuario con sesion ---
                         .anyRequest().authenticated())
                 // Respuestas cuando no se puede entrar
                 .exceptionHandling(e -> e
